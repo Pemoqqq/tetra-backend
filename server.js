@@ -314,7 +314,7 @@ try {
 }
 
 try {
-  const leaveModule = require('./routes/leave');
+  const leaveModule = require('./routes/leaves');
   if (typeof leaveModule === 'function') {
     app.use('/api/leave', leaveModule(pool, authenticateToken));
     console.log('✅ Маршруты /api/leave подключены');
@@ -326,7 +326,7 @@ try {
 }
 
 try {
-  const scheduleModule = require('./routes/schedules');
+  const scheduleModule = require('./routes/schedule');
   if (typeof scheduleModule === 'function') {
     app.use('/api/schedules', scheduleModule(pool, authenticateToken));
     console.log('✅ Маршруты /api/schedules подключены');
