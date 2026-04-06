@@ -1,89 +1,51 @@
-require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const pool = require('./config/database');
-
-// 1. Импорт всех маршрутов (роутов)
-const authRoutes = require('./routes/auth');    // Авторизация
-const shiftRoutes = require('./routes/shifts'); // Учет рабочего времени
-const leaveRoutes = require('./routes/leaves'); // Отпуска и отгулы
-const taskRoutes = require('./routes/tasks');   // Задачи
-const scheduleRoutes = require('./routes/schedule');
-
+const { Pool } = require('pg');
+require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 5000;
 
-// 2. Настройка Middleware (промежуточного ПО)
-app.use('/api/schedule', scheduleRoutes);
-app.use(cors()); // Разрешаем запросы с мобильного устройства
-app.use(express.json()); // Позволяет читать JSON из запросов
+// Middleware
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 3. Базовые маршруты для проверки
-app.get('/', (req, res) => {
-  res.json({ 
-    message: 'Сервер ООО "Тетра" работает',
-    version: '1.2.0 (Full Stack)',
-    timestamp: new Date().toISOString()
-  });
+// Подключение к базе данных
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false
+  } : false
 });
 
-// Проверка здоровья сервера и базы данных
-app.get('/api/health', async (req, res) => {
-  try {
-    await pool.query('SELECT 1');
-    res.json({ 
-      status: 'ok',
-      database: 'connected',
-      timestamp: new Date().toISOString()
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'error',
-      database: 'disconnected',
-      error: error.message
-    });
-  }
+// Проверка подключения к БД
+pool.on('connect', () => {
+  console.log('✅ Подключение к базе данных установлено');
 });
 
-// 4. Подключение маршрутов API
-// Все запросы, начинающиеся с этих путей, пойдут в соответствующие файлы
-app.use('/api/auth', authRoutes);
-app.use('/api/shifts', shiftRoutes);
-app.use('/api/leaves', leaveRoutes);
-app.use('/api/tasks', taskRoutes);
-
-// 5. Обработка ошибок (если маршрут не найден)
-app.use((req, res) => {
-  res.status(404).json({ error: 'Маршрут не найден. Проверьте URL запроса.' });
+pool.on('error', (err) => {
+  console.error('❌ Ошибка подключения к базе данных:', err);
 });
 
-// Глобальная обработка ошибок сервера
-app.use((err, req, res, next) => {
-  console.error('🔥 Ошибка сервера:', err);
-  res.status(500).json({ error: 'Внутренняя ошибка сервера' });
-});
-
-// 6. Запуск сервера
-// '0.0.0.0' означает, что сервер слушает все сетевые интерфейсы (доступен по Wi-Fi)
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✅ Сервер успешно запущен на порту ${PORT}`);
-  console.log(`🌐 Доступен в локальной сети. Проверь свой IP командой ipconfig`);
-});
-
-
-// Функция для создания таблиц
+// Функция создания таблиц
 const createTables = async () => {
   try {
     const client = await pool.connect();
     
+    console.log('🔄 Создание таблиц базы данных...');
+
     // Таблица отделов
     await client.query(`
       CREATE TABLE IF NOT EXISTS departments (
         id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
-        description TEXT
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Таблица departments создана');
@@ -94,20 +56,30 @@ const createTables = async () => {
         id SERIAL PRIMARY KEY,
         full_name VARCHAR(150) NOT NULL,
         tab_number VARCHAR(50) UNIQUE NOT NULL,
-        department_id INT REFERENCES departments(id),
-        position VARCHAR(100)
+        department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL,
+        position VARCHAR(100),
+        email VARCHAR(100),
+        phone VARCHAR(20),
+        hire_date DATE,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Таблица employees создана');
 
-    // Таблица пользователей
+    // Таблица пользователей (для входа в систему)
     await client.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
         login VARCHAR(50) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         role VARCHAR(50) DEFAULT 'employee',
-        employee_id INT REFERENCES employees(id)
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        is_active BOOLEAN DEFAULT true,
+        last_login TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Таблица users создана');
@@ -116,45 +88,239 @@ const createTables = async () => {
     await client.query(`
       CREATE TABLE IF NOT EXISTS shifts (
         id SERIAL PRIMARY KEY,
-        employee_id INT REFERENCES employees(id),
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
         start_time TIMESTAMP NOT NULL,
         end_time TIMESTAMP,
         status VARCHAR(50) DEFAULT 'open',
-        break_duration INT DEFAULT 0
+        break_duration INTEGER DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
     console.log('✅ Таблица shifts создана');
 
-    // Создаем тестового админа
-    const bcrypt = require('bcryptjs');
-    const hashedPassword = await bcrypt.hash('admin123', 10);
-    
+    // Таблица перерывов
     await client.query(`
-      INSERT INTO departments (name, description) 
-      VALUES ('IT отдел', 'Разработка')
-      ON CONFLICT DO NOTHING
+      CREATE TABLE IF NOT EXISTS breaks (
+        id SERIAL PRIMARY KEY,
+        shift_id INTEGER REFERENCES shifts(id) ON DELETE CASCADE,
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        duration INTEGER DEFAULT 0,
+        break_type VARCHAR(50) DEFAULT 'lunch',
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
+    console.log('✅ Таблица breaks создана');
 
+    // Таблица задач
     await client.query(`
-      INSERT INTO employees (full_name, tab_number, department_id, position) 
-      VALUES ('Администратор', '0001', 1, 'Админ')
-      ON CONFLICT DO NOTHING
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        shift_id INTEGER REFERENCES shifts(id) ON DELETE SET NULL,
+        title VARCHAR(200) NOT NULL,
+        description TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        priority VARCHAR(50) DEFAULT 'medium',
+        due_date TIMESTAMP,
+        completed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
+    console.log('✅ Таблица tasks создана');
 
+    // Таблица заявок на отпуск
     await client.query(`
-      INSERT INTO users (login, password_hash, role, employee_id) 
-      VALUES ('admin', $1, 'admin', 1)
-      ON CONFLICT (login) DO NOTHING
-    `, [hashedPassword]);
-    
-    console.log('✅ Тестовые данные созданы');
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        type VARCHAR(50) DEFAULT 'vacation',
+        reason TEXT,
+        status VARCHAR(50) DEFAULT 'pending',
+        approved_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        approved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Таблица leave_requests создана');
+
+    // Таблица расписания
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schedules (
+        id SERIAL PRIMARY KEY,
+        employee_id INTEGER REFERENCES employees(id) ON DELETE CASCADE,
+        day_of_week INTEGER NOT NULL,
+        start_time TIME NOT NULL,
+        end_time TIME NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    console.log('✅ Таблица schedules создана');
+
+    // Создаем тестовые данные (если таблицы пустые)
+    const deptCheck = await client.query('SELECT COUNT(*) FROM departments');
+    if (parseInt(deptCheck.rows[0].count) === 0) {
+      await client.query(`
+        INSERT INTO departments (name, description) VALUES
+        ('IT отдел', 'Разработка и поддержка информационных систем'),
+        ('Бухгалтерия', 'Финансовый учет и отчетность'),
+        ('Отдел кадров', 'Управление персоналом'),
+        ('Отдел продаж', 'Продажи и работа с клиентами')
+      `);
+      console.log('✅ Созданы тестовые отделы');
+    }
+
+    // Создаем администратора если нет пользователей
+    const userCheck = await client.query('SELECT COUNT(*) FROM users');
+    if (parseInt(userCheck.rows[0].count) === 0) {
+      const bcrypt = require('bcryptjs');
+      const hashedPassword = await bcrypt.hash('admin123', 10);
+      
+      // Создаем сотрудника-администратора
+      const empResult = await client.query(`
+        INSERT INTO employees (full_name, tab_number, department_id, position, email)
+        VALUES ('Администратор Системы', '0001', 1, 'Системный администратор', 'admin@tetra.ru')
+        ON CONFLICT (tab_number) DO NOTHING
+        RETURNING id
+      `);
+
+      const employeeId = empResult.rows[0]?.id || 1;
+
+      // Создаем пользователя admin
+      await client.query(`
+        INSERT INTO users (login, password_hash, role, employee_id)
+        VALUES ('admin', $1, 'admin', $2)
+        ON CONFLICT (login) DO NOTHING
+      `, [hashedPassword, employeeId]);
+      
+      console.log('✅ Создан пользователь admin (пароль: admin123)');
+    }
+
     client.release();
+    console.log('✅ Все таблицы успешно созданы и проверены');
   } catch (error) {
     console.error('❌ Ошибка создания таблиц:', error);
+    throw error;
   }
 };
 
-// Вызываем функцию перед запуском сервера
-createTables();
+// Middleware для проверки токена
+const authenticateToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
 
-module.exports = app;
+    if (!token) {
+      return res.status(401).json({ error: 'Требуется авторизация' });
+    }
+
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'tetra_secret_key_2025_change_in_production');
+    
+    const result = await pool.query(
+      'SELECT u.*, e.full_name, e.tab_number FROM users u LEFT JOIN employees e ON u.employee_id = e.id WHERE u.id = $1',
+      [decoded.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(403).json({ error: 'Пользователь не найден' });
+    }
+
+    req.user = result.rows[0];
+    next();
+  } catch (error) {
+    console.error('Ошибка аутентификации:', error);
+    return res.status(403).json({ error: 'Неверный токен' });
+  }
+};
+
+// ==================== ROUTES ====================
+
+// Health check
+app.get('/api/health', async (req, res) => {
+  try {
+    await pool.query('SELECT 1');
+    res.json({ 
+      status: 'ok', 
+      database: 'connected',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error', 
+      database: 'disconnected',
+      error: error.message 
+    });
+  }
+});
+
+// Auth routes
+const authRoutes = require('./routes/auth')(pool);
+app.use('/api/auth', authRoutes);
+
+// Employee routes
+const employeeRoutes = require('./routes/employees')(pool, authenticateToken);
+app.use('/api/employees', employeeRoutes);
+
+// Shift routes
+const shiftRoutes = require('./routes/shifts')(pool, authenticateToken);
+app.use('/api/shifts', shiftRoutes);
+
+// Task routes
+const taskRoutes = require('./routes/tasks')(pool, authenticateToken);
+app.use('/api/tasks', taskRoutes);
+
+// Leave request routes
+const leaveRoutes = require('./routes/leave')(pool, authenticateToken);
+app.use('/api/leave', leaveRoutes);
+
+// Schedule routes
+const scheduleRoutes = require('./routes/schedules')(pool, authenticateToken);
+app.use('/api/schedules', scheduleRoutes);
+
+// Обработка ошибок 404
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Маршрут не найден. Проверьте URL запроса.' 
+  });
+});
+
+// Глобальная обработка ошибок
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({ 
+    error: 'Внутренняя ошибка сервера',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// Запуск сервера
+const startServer = async () => {
+  try {
+    // Создаем таблицы
+    await createTables();
+    
+    // Запускаем сервер
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`✅ Сервер успешно запущен на порту ${PORT}`);
+      console.log(`🌍 Доступен в локальной сети. Проверь свой IP командой ipconfig`);
+      console.log(`🔗 Health check: http://localhost:${PORT}/api/health`);
+    });
+  } catch (error) {
+    console.error('❌ Не удалось запустить сервер:', error);
+    process.exit(1);
+  }
+};
+
+startServer();
+
+module.exports = { app, pool };
