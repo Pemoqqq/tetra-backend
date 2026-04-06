@@ -1,20 +1,18 @@
 const express = require('express');
+const router = express.Router();
+const LeaveController = require('../controllers/leaveController');
+const { authenticateToken } = require('../middleware/auth');
 
-module.exports = (pool, authenticateToken) => {
-  const router = express.Router();
+// Все маршруты требуют авторизации
+router.use(authenticateToken);
 
-  // GET /api/leave - получить заявки на отпуск
-  router.get('/', authenticateToken, async (req, res) => {
-    try {
-      const result = await pool.query(
-        'SELECT l.*, e.full_name FROM leave_requests l JOIN employees e ON l.employee_id = e.id ORDER BY l.created_at DESC'
-      );
-      res.json(result.rows);
-    } catch (error) {
-      console.error('Ошибка получения заявок на отпуск:', error);
-      res.status(500).json({ error: 'Ошибка получения заявок' });
-    }
-  });
+// Получить баланс отпускных дней
+router.get('/balance', LeaveController.getBalance);
 
-  return router;
-};
+// Создать заявку на отпуск
+router.post('/request', LeaveController.createRequest);
+
+// Получить список заявок сотрудника
+router.get('/requests', LeaveController.getRequests);
+
+module.exports = router;
