@@ -316,7 +316,7 @@ try {
 try {
   const leaveModule = require('./routes/leaves');
   if (typeof leaveModule === 'function') {
-    app.use('/api/leave', leaveModule(pool, authenticateToken));
+    app.use('/api/leaves', leaveRoutes);
     console.log('✅ Маршруты /api/leave подключены');
   } else {
     console.warn('⚠️  Маршруты leave не экспортируют функцию');
