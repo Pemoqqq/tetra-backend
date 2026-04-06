@@ -72,4 +72,89 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`🌐 Доступен в локальной сети. Проверь свой IP командой ipconfig`);
 });
 
+
+// Функция для создания таблиц
+const createTables = async () => {
+  try {
+    const client = await pool.connect();
+    
+    // Таблица отделов
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS departments (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        description TEXT
+      )
+    `);
+    console.log('✅ Таблица departments создана');
+
+    // Таблица сотрудников
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS employees (
+        id SERIAL PRIMARY KEY,
+        full_name VARCHAR(150) NOT NULL,
+        tab_number VARCHAR(50) UNIQUE NOT NULL,
+        department_id INT REFERENCES departments(id),
+        position VARCHAR(100)
+      )
+    `);
+    console.log('✅ Таблица employees создана');
+
+    // Таблица пользователей
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        login VARCHAR(50) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        role VARCHAR(50) DEFAULT 'employee',
+        employee_id INT REFERENCES employees(id)
+      )
+    `);
+    console.log('✅ Таблица users создана');
+
+    // Таблица смен
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS shifts (
+        id SERIAL PRIMARY KEY,
+        employee_id INT REFERENCES employees(id),
+        start_time TIMESTAMP NOT NULL,
+        end_time TIMESTAMP,
+        status VARCHAR(50) DEFAULT 'open',
+        break_duration INT DEFAULT 0
+      )
+    `);
+    console.log('✅ Таблица shifts создана');
+
+    // Создаем тестового админа
+    const bcrypt = require('bcryptjs');
+    const hashedPassword = await bcrypt.hash('admin123', 10);
+    
+    await client.query(`
+      INSERT INTO departments (name, description) 
+      VALUES ('IT отдел', 'Разработка')
+      ON CONFLICT DO NOTHING
+    `);
+
+    await client.query(`
+      INSERT INTO employees (full_name, tab_number, department_id, position) 
+      VALUES ('Администратор', '0001', 1, 'Админ')
+      ON CONFLICT DO NOTHING
+    `);
+
+    await client.query(`
+      INSERT INTO users (login, password_hash, role, employee_id) 
+      VALUES ('admin', $1, 'admin', 1)
+      ON CONFLICT (login) DO NOTHING
+    `, [hashedPassword]);
+    
+    console.log('✅ Тестовые данные созданы');
+    client.release();
+  } catch (error) {
+    console.error('❌ Ошибка создания таблиц:', error);
+  }
+};
+
+// Вызываем функцию перед запуском сервера
+createTables();
+
 module.exports = app;
