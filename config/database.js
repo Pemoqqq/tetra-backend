@@ -2,12 +2,19 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
+// Поддержка как DATABASE_URL (Railway), так и отдельных переменных (локально)
+const connectionString = process.env.DATABASE_URL;
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
+  connectionString: connectionString,
+  ssl: process.env.NODE_ENV === 'production' ? {
+    rejectUnauthorized: false
+  } : false,
+  // Резервные значения для локальной разработки
+  host: process.env.DB_HOST || 'localhost',
+  port: process.env.DB_PORT || 5432,
+  database: process.env.DB_NAME || 'tetra_time_tracking',
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'postgres123',
 });
 
 pool.on('connect', () => {
@@ -16,7 +23,16 @@ pool.on('connect', () => {
 
 pool.on('error', (err) => {
   console.error('❌ Ошибка подключения к базе данных:', err);
-  process.exit(-1);
+  // Не завершаем процесс при ошибке, просто логируем
+});
+
+// Проверка подключения при старте
+pool.query('SELECT NOW()', (err, res) => {
+  if (err) {
+    console.error('❌ Ошибка проверки подключения:', err);
+  } else {
+    console.log('🕐 Время сервера БД:', res.rows[0].now);
+  }
 });
 
 module.exports = pool;
