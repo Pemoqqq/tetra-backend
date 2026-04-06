@@ -263,29 +263,79 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Auth routes
-const authRoutes = require('./routes/auth')(pool);
-app.use('/api/auth', authRoutes);
+// Импортируем и подключаем маршруты ПРАВИЛЬНО
+try {
+  // Проверяем, что модули существуют и экспортируют функции
+  const authModule = require('./routes/auth');
+  if (typeof authModule === 'function') {
+    app.use('/api/auth', authModule(pool));
+    console.log('✅ Маршруты /api/auth подключены');
+  } else {
+    console.warn('⚠️  Маршруты auth не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты auth не найдены или ошибочны:', error.message);
+}
 
-// Employee routes
-const employeeRoutes = require('./routes/employees')(pool, authenticateToken);
-app.use('/api/employees', employeeRoutes);
+try {
+  const employeeModule = require('./routes/employees');
+  if (typeof employeeModule === 'function') {
+    app.use('/api/employees', employeeModule(pool, authenticateToken));
+    console.log('✅ Маршруты /api/employees подключены');
+  } else {
+    console.warn('⚠️  Маршруты employees не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты employees не найдены или ошибочны:', error.message);
+}
 
-// Shift routes
-const shiftRoutes = require('./routes/shifts')(pool, authenticateToken);
-app.use('/api/shifts', shiftRoutes);
+try {
+  const shiftModule = require('./routes/shifts');
+  if (typeof shiftModule === 'function') {
+    app.use('/api/shifts', shiftModule(pool, authenticateToken));
+    console.log('✅ Маршруты /api/shifts подключены');
+  } else {
+    console.warn('⚠️  Маршруты shifts не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты shifts не найдены или ошибочны:', error.message);
+}
 
-// Task routes
-const taskRoutes = require('./routes/tasks')(pool, authenticateToken);
-app.use('/api/tasks', taskRoutes);
+try {
+  const taskModule = require('./routes/tasks');
+  if (typeof taskModule === 'function') {
+    app.use('/api/tasks', taskModule(pool, authenticateToken));
+    console.log('✅ Маршруты /api/tasks подключены');
+  } else {
+    console.warn('⚠️  Маршруты tasks не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты tasks не найдены или ошибочны:', error.message);
+}
 
-// Leave request routes
-const leaveRoutes = require('./routes/leave')(pool, authenticateToken);
-app.use('/api/leave', leaveRoutes);
+try {
+  const leaveModule = require('./routes/leave');
+  if (typeof leaveModule === 'function') {
+    app.use('/api/leave', leaveModule(pool, authenticateToken));
+    console.log('✅ Маршруты /api/leave подключены');
+  } else {
+    console.warn('⚠️  Маршруты leave не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты leave не найдены или ошибочны:', error.message);
+}
 
-// Schedule routes
-const scheduleRoutes = require('./routes/schedules')(pool, authenticateToken);
-app.use('/api/schedules', scheduleRoutes);
+try {
+  const scheduleModule = require('./routes/schedules');
+  if (typeof scheduleModule === 'function') {
+    app.use('/api/schedules', scheduleModule(pool, authenticateToken));
+    console.log('✅ Маршруты /api/schedules подключены');
+  } else {
+    console.warn('⚠️  Маршруты schedules не экспортируют функцию');
+  }
+} catch (error) {
+  console.warn('⚠️  Маршруты schedules не найдены или ошибочны:', error.message);
+}
 
 // Обработка ошибок 404
 app.use((req, res) => {
