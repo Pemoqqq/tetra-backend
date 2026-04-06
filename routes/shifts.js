@@ -1,24 +1,35 @@
 const express = require('express');
-const router = express.Router();
-const ShiftController = require('../controllers/shiftController');
-const { authenticateToken, checkRole } = require('../middleware/auth');
 
-// Все маршруты требуют авторизации
-router.use(authenticateToken);
+module.exports = (pool, authenticateToken) => {
+  const router = express.Router();
 
-// Начало смены (employee_id берётся из токена)
-router.post('/start', ShiftController.startShift);
+  // GET /api/shifts - получить смены
+  router.get('/', authenticateToken, async (req, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT s.*, e.full_name FROM shifts s JOIN employees e ON s.employee_id = e.id ORDER BY s.start_time DESC'
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('Ошибка получения смен:', error);
+      res.status(500).json({ error: 'Ошибка получения смен' });
+    }
+  });
 
-// Завершение смены
-router.post('/end', ShiftController.endShift);
+  // POST /api/shifts - начать смену
+  router.post('/', authenticateToken, async (req, res) => {
+    try {
+      const { employee_id } = req.body;
+      const result = await pool.query(
+        'INSERT INTO shifts (employee_id, start_time, status) VALUES ($1, NOW(), \'open\') RETURNING *',
+        [employee_id]
+      );
+      res.json(result.rows[0]);
+    } catch (error) {
+      console.error('Ошибка начала смены:', error);
+      res.status(500).json({ error: 'Ошибка начала смены' });
+    }
+  });
 
-// Получение моих смен
-router.get('/my', ShiftController.getMyShifts);
-
-// Получение активной смены
-router.get('/active', ShiftController.getActiveShift);
-
-// Получение смен подразделения (только для руководителей и админов)
-router.get('/department', checkRole(['manager', 'admin']), ShiftController.getDepartmentShifts);
-
-module.exports = router;
+  return router;
+};

@@ -1,12 +1,20 @@
 const express = require('express');
-const router = express.Router();
-const TaskController = require('../controllers/taskController');
-const { authenticateToken } = require('../middleware/auth');
 
-router.use(authenticateToken);
+module.exports = (pool, authenticateToken) => {
+  const router = express.Router();
 
-router.post('/create', TaskController.createTask);
-router.get('/list', TaskController.getTasks);
-router.post('/complete', TaskController.completeTask);
+  // GET /api/tasks - получить задачи
+  router.get('/', authenticateToken, async (req, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT t.*, e.full_name FROM tasks t JOIN employees e ON t.employee_id = e.id ORDER BY t.created_at DESC'
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('Ошибка получения задач:', error);
+      res.status(500).json({ error: 'Ошибка получения задач' });
+    }
+  });
 
-module.exports = router;
+  return router;
+};
